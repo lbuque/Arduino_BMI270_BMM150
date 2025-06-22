@@ -34,6 +34,17 @@ void BoschSensorClass::onInterrupt(mbed::Callback<void(void)> cb)
   irq.rise(mbed::callback(this, &BoschSensorClass::interrupt_handler));
 }
 #endif
+
+int8_t BoschSensorClass::aux_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t length, void *intf_ptr) {
+  bmi2_dev *dev = (bmi2_dev *)intf_ptr;
+  return bmi2_read_aux_man_mode(reg_addr, reg_data, length, dev);
+}
+
+int8_t BoschSensorClass::aux_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t length, void *intf_ptr) {
+  bmi2_dev *dev = (bmi2_dev *)intf_ptr;
+  return bmi2_write_aux_man_mode(reg_addr, reg_data, length, dev);
+}
+
 int BoschSensorClass::begin(CfgBoshSensor_t cfg) {
 
   _wire->begin();
@@ -50,16 +61,6 @@ int BoschSensorClass::begin(CfgBoshSensor_t cfg) {
   accel_gyro_dev_info._wire = _wire;
   accel_gyro_dev_info.dev_addr = bmi2.chip_id;
 
-  bmm1.chip_id = BMM150_DEFAULT_I2C_ADDRESS;
-  bmm1.read = bmi2_i2c_read;
-  bmm1.write = bmi2_i2c_write;
-  bmm1.delay_us = bmi2_delay_us;
-  bmm1.intf = BMM150_I2C_INTF;
-  bmm1.intf_ptr = &mag_dev_info;
-
-  mag_dev_info._wire = _wire;
-  mag_dev_info.dev_addr = bmm1.chip_id;
-
   int8_t result = 0;
 
   if(cfg != BOSCH_MAGNETOMETER_ONLY) {
@@ -71,6 +72,38 @@ int BoschSensorClass::begin(CfgBoshSensor_t cfg) {
     print_rslt(result);
   }
 
+  /* Pull-up resistor 2k is set to the trim regiter */
+  uint8_t regdata = BMI2_ASDA_PUPSEL_2K;
+  result          = bmi2_set_regs(BMI2_AUX_IF_TRIM, &regdata, 1, &bmi2);
+  print_rslt(result);
+
+  bmi2_sens_config config;
+  config.type = BMI2_AUX;
+
+  /* Get default configurations for the type of feature selected. */
+  result = bmi270_get_sensor_config(&config, 1, &bmi2);
+  print_rslt(result);
+
+  /* Rewrite */
+  config.cfg.aux.odr             = BMI2_AUX_ODR_100HZ;
+  config.cfg.aux.aux_en          = BMI2_ENABLE;
+  config.cfg.aux.i2c_device_addr = BMM150_DEFAULT_I2C_ADDRESS;
+  config.cfg.aux.fcu_write_en    = BMI2_ENABLE;
+  config.cfg.aux.man_rd_burst    = BMI2_AUX_READ_LEN_3;
+  config.cfg.aux.read_addr       = BMM150_REG_DATA_X_LSB;
+  config.cfg.aux.manual_en       = BMI2_ENABLE;
+
+  /* Set back */
+  result = bmi270_set_sensor_config(&config, 1, &bmi2);
+  print_rslt(result);
+
+  /* BMM150 init */
+  bmm1.read     = aux_i2c_read;
+  bmm1.write    = aux_i2c_write;
+  bmm1.delay_us = bmi2_delay_us;
+  bmm1.intf     = BMM150_I2C_INTF;
+  bmm1.intf_ptr = &bmi2;
+
   if(cfg != BOSCH_ACCELEROMETER_ONLY) {
 
     result |= bmm150_init(&bmm1);
@@ -79,6 +112,13 @@ int BoschSensorClass::begin(CfgBoshSensor_t cfg) {
     result = configure_sensor(&bmm1);
     print_rslt(result);
   }
+
+  // printf("aux get chip id: 0x%X\n", bmm1.chip_id);
+  // if (bmm1.chip_id == BMM150_CHIP_ID) {
+  //   printf("id ok\n");
+  // } else {
+  //   printf("error id\n");
+  // }
 
   _initialized = (result == 0);
 

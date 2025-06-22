@@ -82,6 +82,9 @@ class BoschSensorClass {
     void interrupt_handler();
     void print_rslt(int8_t rslt);
 
+    static int8_t aux_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t length, void *intf_ptr);
+    static int8_t aux_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t length, void *intf_ptr);
+
   private:
     TwoWire* _wire;
     Stream* _debug = nullptr;
